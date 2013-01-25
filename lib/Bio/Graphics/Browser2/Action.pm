@@ -5,7 +5,7 @@ package Bio::Graphics::Browser2::Action;
 
 use strict;
 use Carp qw(croak confess cluck);
-use CGI();
+use CGI;
 use Bio::Graphics::Browser2::TrackDumper;
 use Bio::Graphics::Browser2::Render::HTML;
 use Bio::Graphics::Browser2::SendMail;
@@ -17,6 +17,7 @@ use Data::Dumper;
 use Storable qw(dclone);;
 use POSIX;
 use Digest::MD5 'md5_hex';
+use URI::Escape;
 
 # these are actions for which shared session locks are all right
 my %SHARED_LOCK_OK = (retrieve_multiple => 1,
@@ -72,7 +73,7 @@ sub segment     {shift->render->segment}
 sub is_authentication_event {
     my $class = shift;
     my $action = CGI::param('action');
-    my %ok = map {$_=>1} qw(gbrowse_login authorize_login plugin_authenticate plugin_login get_translation_tables reconfigure_plugin);
+    my %ok = map {$_=>1} qw(gbrowse_login authorize_login plugin_authenticate sso_authenticate plugin_login get_translation_tables reconfigure_plugin);
     return $ok{$action};
 }
 
@@ -1301,6 +1302,165 @@ sub ACTION_plugin_login {
     $self->session->flush;
     return (200,'text/html',$html);
 }
+
+
+# Start SAMLMOD:
+sub ACTION_plugin_logout {
+  use Net::SAML;
+  my $self = shift;
+  my $q    = shift;
+  my $render    = $self->render;
+  my $session   = $render->session;
+  my $sessionid = $session->id;
+  my $username  = $session->username;
+  my $openid    = $session->using_openid;
+  my $qs = $ENV{'QUERY_STRING'};
+  my $sid = $session->samlid();
+  $session->username("");
+  $session->id("");
+  $session->flush();
+  $session->delete();
+ # $session->flush();
+  my $conf = "URL=http://localhost:8888/cgi-bin/gb2/gbrowse/yeast/";
+  my $cf = Net::SAML::new_conf_to_cf($conf);
+  my $ses = Net::SAML::fetch_ses($cf, $sid);
+  my $redir =  Net::SAML::sp_slo_redir($cf, -1 ,$ses);
+  $redir =~ s/^Location: //;
+  $redir =~ s/[\r|\n]//g;
+
+return  (302, "text/html", $redir);
+}
+
+sub ACTION_sso_authenticate {
+  my $self = shift;
+  my $q    = shift;
+  
+  my $render = $self->render;
+  $render->init_plugins();
+  my $plugin = eval{$render->plugins->auth_plugin} 
+    or return (204,'text/plain','no authenticator defined');
+  my $script = "";
+  my $result;
+  my $samlart = uri_escape( $q->param("SAMLart"));
+  warn ("sso_authenticate called with SAMLart $samlart");
+  my ($username,$fullname,$email, $sid);
+    if ( ($username,$fullname,$email, $sid)  = $plugin->authenticate($samlart) ) {
+      
+      my $session   = $self->session;
+      
+      $session->unlock;
+      $session->samlid($sid);
+      $session->flush;     
+
+      warn "samlid: ".$session->samlid()." stored in session\n";
+      
+      #$session->unlock;
+      my $userdb = $render->userdb;
+      my $id = $userdb->check_or_add_named_session($session->id,$username);
+      $userdb->set_fullname_from_username($username=>$fullname,$email) if defined $fullname;
+      
+      # now authenticate
+      my ($sid, $nonce) = $render->authorize_user($username,$id, 1,undef);
+      #warn "sid: $sid, nonce:$nonce";
+      $session->username($username);
+      $session->flush; 
+    my $is_authorized = $render->user_authorized_for_source($username);
+    if ($is_authorized) {
+	#	$session->private(1); # that doesn't seem to work for me, but the session should be private, or not??? 
+      warn "user IS authorized for resource" if DEBUG;
+      $result = { userOK  => 1,
+		  sessionid => $id,
+		  username  => $username,
+		  message   => 'login ok',
+		 };
+      $script =  CGI::script({-type=>'text/javascript'}, 
+
+<<SCRIPT
+
+login_get_account("$username", "$id", true, false);
+
+SCRIPT
+);
+    
+
+    } else {
+      warn "user IS NOT authorized for resource";
+      $result = { userOK    => 0,
+		  message   => 'You are not authorized to access this data source.'};
+      return (200,'application/json',$result);
+    }
+  } 
+  # failed to authenticate
+  else {
+    warn "user IS NOT authorized AT ALL";
+    $result = { userOK   => undef,
+		message  => "Invalid name/password"
+	      };
+    return (200,'application/json',$result);
+  }  
+
+# UGLY:
+
+my $html =	 <<HTML
+<html>
+<head>
+<script src="/gbrowse2/js/login.js" type="text/javascript"></script> 
+
+<script src="?action=get_translation_tables;language=en-us" type="text/javascript"></script>
+<script src="/gbrowse2/js/prototype.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/scriptaculous.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/subtracktable.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/controls.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/autocomplete.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/login.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/buttons.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/trackFavorites.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/karyotype.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/rubber.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/overviewSelect.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/detailSelect.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/regionSelect.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/track.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/balloon.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/balloon.config.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/GBox.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/ajax_upload.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/tabs.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/track_configure.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/track_pan.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/ruler.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/controller.js" type="text/javascript"></script>
+<script src="/gbrowse2/js/snapshotManager.js" type="text/javascript"></script>
+
+ 
+</head>
+<body> \n
+$script
+<p>
+
+# ICICIC: hardcoded URL!
+You will be redirected to GBrowse, if that doesn't happen automatically, <a href="http://localhost:8888/cgi-bin/gb2/gbrowse/yeast/">click here</a>
+</p>
+</body>
+</html>
+)
+HTML
+;
+
+return  (200, "text/html", $html); 
+
+	
+   
+
+# return (200,'application/json',$result);
+
+
+}
+
+
+## END SAMLMOD:
+
+
 
 sub ACTION_plugin_authenticate {
     my $self = shift;

@@ -85,7 +85,7 @@ sub render_login_required {
     my $self   = shift;
     my $action = shift;
     return div(
-	h1($self->translate('LOGIN_REQUIRED'),
+	p($self->translate('LOGIN_REQUIRED'),
 	   button(-name    => $self->translate('LOGIN'),
 		  -onClick => $action)
 	));

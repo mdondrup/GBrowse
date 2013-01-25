@@ -11,6 +11,7 @@ use File::Basename 'dirname','basename';
 use Text::Tabs;
 use Data::Dumper;
 use English;
+use URI::Escape;
 
 use Bio::Graphics::Browser2::I18n;
 use Bio::Graphics::Browser2::PluginSet;
@@ -255,7 +256,7 @@ sub run {
   }
 
   if ($source->must_authenticate) {
-      if ($session->private && 
+      if (#$session->private && 
 	  $self->user_authorized_for_source($session->username))
       {
 	  # login session - make sure that the data source has the information needed
@@ -1860,16 +1861,31 @@ sub force_authentication {
 	$self->run_asynchronous_event;
 	$self->session->unlock;
 	return;
+    };
+    ### SAMLMOD: force sso authentication forwarding the SAMLart parameter
+    # UGLY:
+    $self->init();
+    unless (param('action') eq "sso_authenticate") {
+      my $action = "?action=sso_authenticate";
+      if (param('SAMLart')) {
+	$action .= "&SAMLart=".uri_escape(param('SAMLart'));
     }
-
+      print redirect($action);
+      return;
+    }
+    return;
+    ### Rest is defunct!
     if (param('action')) {
 	print CGI::header(-status => '403 Forbidden');
 	return;
     }
 
+
+    #return;
     # render main page
-    $self->init();
-    $self->render_header();
+   
+    
+  
 
     my $confirm        = param('confirm') || param('openid_confirm');
 
@@ -1892,6 +1908,7 @@ sub force_authentication {
     }
     $output .= "<hr>";
     $output .= $self->render_bottom();
+    $self->render_header();
     print $output;
 }
 

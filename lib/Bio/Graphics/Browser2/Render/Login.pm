@@ -107,7 +107,8 @@ sub render_plugin_login {
 		    span({-style => 'font-weight:bold;color:black;'}, 
 			 $render->translate('WELCOME', $fullname)),
 		    span({-style => $style,
-			 -onMouseDown => "location.href='?id=logout'"},
+## SAMLMOD: changed to get full controll over the logout process
+			 -onMouseDown => "location.href='?action=plugin_logout'"},
 			 $render->translate('LOG_OUT', $fullname))
 		)
 		: (

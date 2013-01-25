@@ -368,6 +368,17 @@ sub username {
     return $user;
 }
 
+## SAMLMOD: need to save the SAML session ID, because we need it to 
+## generate the correct logout link via Net::SAML
+
+sub samlid {
+    my $self = shift;
+    my $samlid = $self->{session}->param('.samlid');
+    $self->{session}->param('.samlid' => shift()) if @_;
+    return $samlid;
+}
+
+
 sub using_openid {
     my $self = shift;
     my $using = $self->{session}->param('.using_openid');

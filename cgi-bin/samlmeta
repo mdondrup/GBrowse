@@ -1,0 +1,104 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use CGI qw(:standard);
+use CGI::Carp;
+use Data::Dumper;
+
+use Net::SAML;
+
+my $url = "http://localhost:8888/cgi-bin/gb2/gbrowse/yeast/";  # Edit to match your situation!
+my $idp = "http://localhost:8888/simplesaml/saml2/idp/metadata.php";
+my $conf = "URL=$url&";
+my $cf = Net::SAML::new_conf_to_cf($conf);
+#Net::SAML::init_conf($cf,"/var/zxid/");
+Net::SAML::url_set($cf, $url);
+#Net::SAML::set_opt($cf, 1 ,1); 
+
+
+#print STDERR Dumper ($cf);
+my $qs = "o=B";
+#$qs = <STDIN> if $qs =~ /o=P/;
+#$qs .= "&e=http%3A%2F%2Flocalhost%3A8888%2Fsimplesaml%2Fsaml2%2Fidp%2Fmetadata.php&l0=TRUE"
+#unless ($qs =~ /s=|(SAMLart=)|o=B/);
+#$qs .= "&e=l0$idp&l0=TRUE";
+#print STDERR "QS: $qs\n";
+my $res = Net::SAML::simple_cf($cf, -1, $qs, undef, 0x1828); # keep the flags 0x1828 !!! 
+print STDERR "RESULT: $res\n";
+my $op = substr($res, 0, 1);
+print STDERR "OP: $op\n";
+
+if ($op eq 'L' || $op eq 'C') { print $res;  exit; } # LOCATION (Redir) or CONTENT
+
+die "'$op' unknown op";
+__END__
+#if ($op eq 'n') { exit; } # already handled
+#if ($op eq 'e') { my_render_idpsel_screen(); exit; } # not logged in
+#if ($op ne 'd') { die "Unknown Net::SAML::simple() res($res)"; }
+# $op == d means logged in
+#my ($sid) = $res =~ /^sesid: (.*)$/m;  # Extract a useful attribute from SSO output
+#print header();
+#my $resE = escapeHTML($res);
+
+print <<HTML
+    
+    <title>ZXID perl HLO SP Mgmt & Protected Content</title>
+    <body bgcolor="white"><font face="sans">
+    
+    <h1>ZXID SP Perl HLO Management & Protected Content (user logged in, session active)</h1>
+  sessionid: $sid
+
+HTML
+    ;
+print Net::SAML::fed_mgmt_cf($cf, undef, -1, $sid, 0x1900);
+
+print <<HTML
+<pre>
+$resE
+</pre>
+HTML
+    ;
+
+
+exit;
+
+sub my_render_idpsel_screen {  # Replaces traditional login screen
+    
+    print header();
+
+print <<HTML;	
+	<title>ZXID SP PERL HLO SSO IdP Selection</title>
+	<link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+	<link type="text/css" rel=stylesheet href="idpsel.css">
+	<body bgcolor="white"><font face="sans">
+	<h1>ZXID SP Perl HLO Federated SSO IdP Selection (user NOT logged in, no session.)</h1>
+	<form method=get action="zxtest.cgi">
+	
+	<h3>Login Using New IdP</h3>
+	
+	<i>A new IdP is one whose metadata we do not have yet. We need to know
+	the Entity ID in order to fetch the metadata using the well known
+	location method. You will need to ask the adminstrator of the IdP to
+	tell you what the EntityID is.</i>
+	
+	<p>IdP URL <input name=e size=60><input type=submit name=l2 value=" Login ">
+HTML
+	;
+    print Net::SAML::idp_list_cf($cf, undef, 0);   # Get the IdP selection form
+    print <<HTML;
+    <h3>CoT configuration parameters your IdP may need to know</h3>
+	
+	Entity ID of this SP: <a href="$url?o=B">$url?o=B</a> (Click on the link to fetch SP metadata.)
+	
+	<input type=hidden name=fc value=1><input type=hidden name=fn value=prstnt>
+	<input type=hidden name=fq value=""><input type=hidden name=fy value="">
+	<input type=hidden name=fa value=""><input type=hidden name=fm value="">
+	<input type=hidden name=fp value=0><input type=hidden name=ff value=0>
+	
+	</form><hr><a href="http://zxid.org/">zxid.org</a>
+HTML
+	;
+}
+
+__END__

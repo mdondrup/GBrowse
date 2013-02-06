@@ -1305,32 +1305,54 @@ sub ACTION_plugin_login {
 
 
 # Start SAMLMOD:
+
 sub ACTION_plugin_logout {
-  use Net::SAML;
+  
+  use Net::SAML; ## oh no, now whole gbrowse depends on Net::SAML!
+  # I guess the whole stuff should go into a hook in the authetication module
+  ## REFACTOR: create a hook logout_request_hook in SAMLauthenticator plugin
   my $self = shift;
   my $q    = shift;
   my $render    = $self->render;
+  my $globals = $render->globals;
   my $session   = $render->session;
   my $sessionid = $session->id;
   my $username  = $session->username;
   my $openid    = $session->using_openid;
   my $qs = $ENV{'QUERY_STRING'};
   my $sid = $session->samlid();
+  # Close the GBrowse session, before terminating the master session:
+  ## QUESTION: I don't really know how to validly close the authenticated GBrowse session!
+  ## What is the correct way of doing this?
+  ## I found that a gbrowse request ?id=logout would close the GBrowse session, however I am not able
+  ## to locate and modify the receiver (need to add code for SAML session termination).
+  ## Here, I just remove the username
   $session->username("");
-  $session->id("");
+ # $session->id("");
   $session->flush();
-  $session->delete();
+ # $session->delete();
  # $session->flush();
-  my $conf = "URL=http://localhost:8888/cgi-bin/gb2/gbrowse/yeast/";
+
+ # removed hardcoded URL, done
+  my $url = $q->url().'/'.$globals->default_source.'/'; # "http://localhost:8888/cgi-bin/gb2/gbrowse/yeast/"
+  my $conf = "URL=$url";
   my $cf = Net::SAML::new_conf_to_cf($conf);
-  my $ses = Net::SAML::fetch_ses($cf, $sid);
-  my $redir =  Net::SAML::sp_slo_redir($cf, -1 ,$ses);
+  # retrieve SAML session by id
+  my $ses = Net::SAML::fetch_ses($cf, $sid); 
+  # generate the request to terminate the SAML session
+  my $redir =  Net::SAML::sp_slo_redir($cf, -1 ,$ses); 
+  # the result is the complete http header, plus some \r characters
+  # but we need only the URL, so remove the rest (there seems to be no
+  # not function in Net::SAML to receive the URL alone...)
   $redir =~ s/^Location: //;
   $redir =~ s/[\r|\n]//g;
-
-return  (302, "text/html", $redir);
+  # return the redirect request
+  return  (302, "text/html", $redir);
 }
 
+
+## This action is based on a copy of plugin_authenticate
+## It is meant to 
 sub ACTION_sso_authenticate {
   my $self = shift;
   my $q    = shift;
@@ -1342,7 +1364,7 @@ sub ACTION_sso_authenticate {
   my $script = "";
   my $result;
   my $samlart = uri_escape( $q->param("SAMLart"));
-  warn ("sso_authenticate called with SAMLart $samlart");
+  warn ("sso_authenticate called with SAMLart $samlart") if DEBUG;
   my ($username,$fullname,$email, $sid);
     if ( ($username,$fullname,$email, $sid)  = $plugin->authenticate($samlart) ) {
       
@@ -1351,9 +1373,10 @@ sub ACTION_sso_authenticate {
       $session->unlock;
       $session->samlid($sid);
       $session->flush;     
-
-      warn "samlid: ".$session->samlid()." stored in session\n";
-      
+      ## the SAML session id needs to be stored in the local session,
+      ## because it is needed to terminate the SAML session in case of a logout
+      warn "samlid: ".$session->samlid()." stored in session\n" if DEBUG;
+      # now generate a named session
       #$session->unlock;
       my $userdb = $render->userdb;
       my $id = $userdb->check_or_add_named_session($session->id,$username);
@@ -1366,13 +1389,17 @@ sub ACTION_sso_authenticate {
       $session->flush; 
     my $is_authorized = $render->user_authorized_for_source($username);
     if ($is_authorized) {
-	#	$session->private(1); # that doesn't seem to work for me, but the session should be private, or not??? 
+      #	$session->private(1); 
+      ## that doesn't seem to work for me, but the session should be private, or not??? 
+      # QUESTION: what exactly does private session mean, and why is incompatible with the SAML SSO approach
       warn "user IS authorized for resource" if DEBUG;
       $result = { userOK  => 1,
 		  sessionid => $id,
 		  username  => $username,
 		  message   => 'login ok',
 		 };
+      ## generate the javascript call, that will load the account
+      ## adding a named session alone isn't sufficient sufficient
       $script =  CGI::script({-type=>'text/javascript'}, 
 
 <<SCRIPT
@@ -1399,8 +1426,8 @@ SCRIPT
     return (200,'application/json',$result);
   }  
 
-# UGLY:
-
+## UGLY: Well this is realy ugly, also
+# ICICIC: hardcoded URL!
 my $html =	 <<HTML
 <html>
 <head>
@@ -1438,7 +1465,7 @@ my $html =	 <<HTML
 $script
 <p>
 
-# ICICIC: hardcoded URL!
+
 You will be redirected to GBrowse, if that doesn't happen automatically, <a href="http://localhost:8888/cgi-bin/gb2/gbrowse/yeast/">click here</a>
 </p>
 </body>

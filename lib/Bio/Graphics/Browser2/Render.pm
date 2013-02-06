@@ -1862,12 +1862,32 @@ sub force_authentication {
 	$self->session->unlock;
 	return;
     };
+
     ### SAMLMOD: force sso authentication forwarding the SAMLart parameter
-    # UGLY:
+    # UGLY: because it is disruptive for any other authentication plugin,
+    # because it ties this module tightly to the SAML authentication
+    # but: otherwise this function would send a http header, which is 
+    # incompatible with the SAML authetication pattern. Instead, the
+    # SAML autheticator needs to send its own redirect header and therefore
+    # needs full control. 
+    # REFACTOR: try to put this into a hook in the plugin: &redirect_header_hook
+    # which will pass full controll to the plugin if defined, but will not 
+    # leave the normal controll flow, if hook not defined or nothing returned.
+    #
+    # During a SAML authentication procedure, this function is passed twice:
+    # 1. after initial request to protected URL
+    # 2. after redirect from IdP to the same URL after a valid logon
+    # the second request contains a token "SAMLart" which is parsed by
+    # the Net::SAML module. 
+    ###
+
     $self->init();
-    unless (param('action') eq "sso_authenticate") {
+    unless (param('action') eq "sso_authenticate") { # avoid redirect loop!
       my $action = "?action=sso_authenticate";
       if (param('SAMLart')) {
+	# not sure if uri_escape is necessary here
+	# it is required at least once, because Net::SAML doesn't 
+	# do it automatically
 	$action .= "&SAMLart=".uri_escape(param('SAMLart'));
     }
       print redirect($action);
@@ -1880,12 +1900,8 @@ sub force_authentication {
 	return;
     }
 
-
     #return;
     # render main page
-   
-    
-  
 
     my $confirm        = param('confirm') || param('openid_confirm');
 

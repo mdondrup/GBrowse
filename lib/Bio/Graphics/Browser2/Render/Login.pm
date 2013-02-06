@@ -103,7 +103,7 @@ sub render_plugin_login {
     my $style    = $self->link_style;
     my $fullname = $render->userdb->fullname_from_sessionid($session->id);
     return span({-style=>$self->container_style},
-		$session->private ? (
+		($session->username() && $session->private()) ? (
 		    span({-style => 'font-weight:bold;color:black;'}, 
 			 $render->translate('WELCOME', $fullname)),
 		    span({-style => $style,

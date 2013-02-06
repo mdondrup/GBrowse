@@ -102,13 +102,23 @@ sub render_plugin_login {
     my $session  = $render->session;
     my $style    = $self->link_style;
     my $fullname = $render->userdb->fullname_from_sessionid($session->id);
+    my $plugin = eval{$render->plugins->auth_plugin}; 
+    
+    # SAMLMOD:
+    # delegate control to the plugin about the logout process if required:
+    my $action = (ref $plugin && $plugin->can("plugin_logout_action_hook")) ? 
+      $plugin->plugin_logout_action_hook() : 'id=logout';
+    warn ("using $action retrieved from $plugin");
+
+    # END SAMLMOD:  
+
     return span({-style=>$self->container_style},
 		($session->username() && $session->private()) ? (
 		    span({-style => 'font-weight:bold;color:black;'}, 
 			 $render->translate('WELCOME', $fullname)),
 		    span({-style => $style,
-## SAMLMOD: changed to get full controll over the logout process
-			 -onMouseDown => "location.href='?action=plugin_logout'"},
+## SAMLMOD: use the plugin action or the default:, 
+			 -onMouseDown => "location.href='?$action'"},
 			 $render->translate('LOG_OUT', $fullname))
 		)
 		: (

@@ -1305,188 +1305,23 @@ sub ACTION_plugin_login {
 
 
 # Start SAMLMOD:
+# Refactored: moved most stuff into SAMLAutheticator.pm 
 
+# this action must be defined here though, otherwise logout will
+# give an error from sources that don't load the plugin
 sub ACTION_plugin_logout {
-  
-  use Net::SAML; ## oh no, now whole gbrowse depends on Net::SAML!
-  # I guess the whole stuff should go into a hook in the authetication module
-  ## REFACTOR: create a hook logout_request_hook in SAMLauthenticator plugin
   my $self = shift;
   my $q    = shift;
-  my $render    = $self->render;
-  my $globals = $render->globals;
-  my $session   = $render->session;
-  my $sessionid = $session->id;
-  my $username  = $session->username;
-  my $openid    = $session->using_openid;
-  my $qs = $ENV{'QUERY_STRING'};
-  my $sid = $session->samlid();
-  # Close the GBrowse session, before terminating the master session:
-  ## QUESTION: I don't really know how to validly close the authenticated GBrowse session!
-  ## What is the correct way of doing this?
-  ## I found that a gbrowse request ?id=logout would close the GBrowse session, however I am not able
-  ## to locate and modify the receiver (need to add code for SAML session termination).
-  ## Here, I just remove the username
-  $session->username("");
- # $session->id("");
-  $session->flush();
- # $session->delete();
- # $session->flush();
-
- # removed hardcoded URL, done
-  my $url = $q->url().'/'.$globals->default_source.'/'; # "http://localhost:8888/cgi-bin/gb2/gbrowse/yeast/"
-  my $conf = "URL=$url";
-  my $cf = Net::SAML::new_conf_to_cf($conf);
-  # retrieve SAML session by id
-  my $ses = Net::SAML::fetch_ses($cf, $sid); 
-  # generate the request to terminate the SAML session
-  my $redir =  Net::SAML::sp_slo_redir($cf, -1 ,$ses); 
-  # the result is the complete http header, plus some \r characters
-  # but we need only the URL, so remove the rest (there seems to be no
-  # not function in Net::SAML to receive the URL alone...)
-  $redir =~ s/^Location: //;
-  $redir =~ s/[\r|\n]//g;
-  # return the redirect request
-  return  (302, "text/html", $redir);
-}
-
-
-## This action is based on a copy of plugin_authenticate
-## It is meant to 
-sub ACTION_sso_authenticate {
-  my $self = shift;
-  my $q    = shift;
-  
   my $render = $self->render;
   $render->init_plugins();
   my $plugin = eval{$render->plugins->auth_plugin} 
-    or return (204,'text/plain','no authenticator defined');
-  my $script = "";
-  my $result;
-  my $samlart = uri_escape( $q->param("SAMLart"));
-  warn ("sso_authenticate called with SAMLart $samlart") if DEBUG;
-  my ($username,$fullname,$email, $sid);
-    if ( ($username,$fullname,$email, $sid)  = $plugin->authenticate($samlart) ) {
-      
-      my $session   = $self->session;
-      
-      $session->unlock;
-      $session->samlid($sid);
-      $session->flush;     
-      ## the SAML session id needs to be stored in the local session,
-      ## because it is needed to terminate the SAML session in case of a logout
-      warn "samlid: ".$session->samlid()." stored in session\n" if DEBUG;
-      # now generate a named session
-      #$session->unlock;
-      my $userdb = $render->userdb;
-      my $id = $userdb->check_or_add_named_session($session->id,$username);
-      $userdb->set_fullname_from_username($username=>$fullname,$email) if defined $fullname;
-      
-      # now authenticate
-      my ($sid, $nonce) = $render->authorize_user($username,$id, 1,undef);
-      #warn "sid: $sid, nonce:$nonce";
-      $session->username($username);
-      $session->flush; 
-    my $is_authorized = $render->user_authorized_for_source($username);
-    if ($is_authorized) {
-      #	$session->private(1); 
-      ## that doesn't seem to work for me, but the session should be private, or not??? 
-      # QUESTION: what exactly does private session mean, and why is incompatible with the SAML SSO approach
-      warn "user IS authorized for resource" if DEBUG;
-      $result = { userOK  => 1,
-		  sessionid => $id,
-		  username  => $username,
-		  message   => 'login ok',
-		 };
-      ## generate the javascript call, that will load the account
-      ## adding a named session alone isn't sufficient sufficient
-      $script =  CGI::script({-type=>'text/javascript'}, 
-
-<<SCRIPT
-
-login_get_account("$username", "$id", true, false);
-
-SCRIPT
-);
-    
-
-    } else {
-      warn "user IS NOT authorized for resource";
-      $result = { userOK    => 0,
-		  message   => 'You are not authorized to access this data source.'};
-      return (200,'application/json',$result);
-    }
-  } 
-  # failed to authenticate
-  else {
-    warn "user IS NOT authorized AT ALL";
-    $result = { userOK   => undef,
-		message  => "Invalid name/password"
-	      };
-    return (200,'application/json',$result);
-  }  
-
-## UGLY: Well this is realy ugly, also
-# ICICIC: hardcoded URL!
-my $html =	 <<HTML
-<html>
-<head>
-<script src="/gbrowse2/js/login.js" type="text/javascript"></script> 
-
-<script src="?action=get_translation_tables;language=en-us" type="text/javascript"></script>
-<script src="/gbrowse2/js/prototype.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/scriptaculous.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/subtracktable.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/controls.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/autocomplete.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/login.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/buttons.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/trackFavorites.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/karyotype.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/rubber.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/overviewSelect.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/detailSelect.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/regionSelect.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/track.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/balloon.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/balloon.config.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/GBox.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/ajax_upload.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/tabs.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/track_configure.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/track_pan.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/ruler.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/controller.js" type="text/javascript"></script>
-<script src="/gbrowse2/js/snapshotManager.js" type="text/javascript"></script>
-
- 
-</head>
-<body> \n
-$script
-<p>
-
-
-You will be redirected to GBrowse, if that doesn't happen automatically, <a href="http://localhost:8888/cgi-bin/gb2/gbrowse/yeast/">click here</a>
-</p>
-</body>
-</html>
-)
-HTML
-;
-
-return  (200, "text/html", $html); 
-
-	
-   
-
-# return (200,'application/json',$result);
-
-
+    or return (204,'text/plain','no authenticator defined, logout failed');
+  return eval{$plugin->plugin_logout_hook($self, $q)};
+  
 }
 
 
 ## END SAMLMOD:
-
 
 
 sub ACTION_plugin_authenticate {

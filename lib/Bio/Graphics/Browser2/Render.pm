@@ -1874,7 +1874,7 @@ sub force_authentication {
     # which will pass full controll to the plugin if defined, but will not 
     # leave the normal controll flow, if hook not defined or nothing returned.
     #
-    # During a SAML authentication procedure, this function is passed twice:
+    # During a SAML authentication procedure, this function is traversed twice:
     # 1. after initial request to protected URL
     # 2. after redirect from IdP to the same URL after a valid logon
     # the second request contains a token "SAMLart" which is parsed by
@@ -1882,19 +1882,19 @@ sub force_authentication {
     ###
 
     $self->init();
-    unless (param('action') eq "sso_authenticate") { # avoid redirect loop!
-      my $action = "?action=sso_authenticate";
-      if (param('SAMLart')) {
-	# not sure if uri_escape is necessary here
-	# it is required at least once, because Net::SAML doesn't 
-	# do it automatically
-	$action .= "&SAMLart=".uri_escape(param('SAMLart'));
+   
+    my $plugin = eval{$self->plugins->auth_plugin()};
+    if (ref $plugin) {
+      warn "using auth_plugin: ".(ref $plugin) if DEBUG;
+      # check for redirect_header, if returned pass controll 
+      # to the plugin
+      my $ret = eval {$plugin->redirect_header_hook};
+      warn ($ret);
+      print redirect ($ret) if $ret;
+      return if $ret;
     }
-      print redirect($action);
-      return;
-    }
-    return;
-    ### Rest is defunct!
+    
+    ### Rest is defunct..., not any more
     if (param('action')) {
 	print CGI::header(-status => '403 Forbidden');
 	return;

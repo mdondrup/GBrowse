@@ -21,7 +21,6 @@ while (my $q = CGI::Fast->new) { # using mod_fcgid, afaik cannot avoid using thi
     my $globals = Bio::Graphics::Browser2->open_globals;
     print (STDERR "should have read ".$ENV{'CONTENT_LENGTH'}."\n") if $DEBUG;
     
-    #my $p = "https://lb-test.bccs.uib.no";
     my $myurl = $globals->gbrowse_url;
     my $htmlhead = <<HTML
 <script src="/gbrowse2/js/login.js" type="text/javascript"></script>
@@ -30,7 +29,10 @@ HTML
 ;
 	
   my $url = url(-path_info=>1);
-  my $conf = "PATH=/home/licebase/zxid/var/zxid/&URL=$url";
+  my $vpath =  ""; #set this if zxid is installed in a different path 
+                   # setting VPATH for the server doesn't seem to work
+                   #"PATH=/home/licebase/zxid/var/zxid/&"; 
+  my $conf = $vpath."URL=$url";
   my $cf = Net::SAML::new_conf_to_cf($conf);
   my $qs = $q->query_string(); # this is the only safe way to receive the post
   die "empty query string received" unless $qs;

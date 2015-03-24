@@ -88,12 +88,12 @@ $VERSION = '1.00';
 sub name { "Spliced Coding Sequence File" }
 sub description {
 
-  p("The protein sequence dumper plugin dumps out translated protein
+  p("The coding sequence dumper plugin dumps out spliced coding sequence
   sequences of genes found in the currently displayed genomic segment
   in the requested format.") .
 
-  p("This plugin was originally written by Lincoln Stein and Jason
-  Stajich, modified by Aaron Mackey.");
+  p("This plugin is derived from ProteinDumper pluging that was originally written by Lincoln Stein and Jason
+  Stajich, modified by Aaron Mackey. Minor modifications by Michael Dondrup.");
 }
 
 sub dump {
@@ -110,8 +110,9 @@ sub dump {
 
     my $config  = $self->configuration;
 
-    my $ct = Bio::Tools::CodonTable->new;
-    $ct->id($config->{geneticcode});
+    # don't need the codon table if not translating 
+    #my $ct = Bio::Tools::CodonTable->new;
+    #$ct->id($config->{geneticcode});
 
     my @filter  = $self->selected_features;
     $segment->absolute(1);
@@ -124,14 +125,21 @@ sub dump {
 
 	my $cds = join("", map { $self->_get_dna($_) } @cds);
 	if ( (my $phase = $cds[0]->phase) > 0) {
+		# I am just leaving this in, if the phase is corrected
+		# by adding those N's,a partial CDS can be readily translated
+		# as well.
 	    # some genefinders will predict incomplete genes, wherein
 	    # initial exons may not be in phase 0; in which case, we have to
 	    # turn the first incomplete codon into NNN
 	    substr($cds, 0, $phase, "NNN");
 	}
-	
-	push @seqs, Bio::Seq->new(-display_id => $f->display_id,
-				  -descr => $f->location->to_FTstring,
+	my $strand = '.';
+	$strand = ($f->strand > 0) ? '+':'-' if $f->strand;
+	push @seqs, Bio::Seq->new(-display_id => ($f->display_id || $f->id),
+				  -desc => $f->primary_tag.", complete CDS, ".$f->desc." ". $f->start."..".
+				  $f->end.' '.$strand,
+	              -species => $f->species,
+				  -accession_number => $f->accession_number,
 				  -seq => $cds
 	    );
     }
@@ -231,7 +239,7 @@ sub configure_form {
 			 )
 		      )
 		   );
-
+ if (0) {	
   push @choices, TR({-class => 'searchtitle'},
 		    th({-align=>'RIGHT',-width=>'25%'},"Genetic Code",
 		       td(popup_menu('-name'   => $self->config_name('geneticcode'),
@@ -252,7 +260,7 @@ sub configure_form {
 			 )
 		      )
 		   );
-
+  };
   my $html= table(@choices);
   $html;
 }

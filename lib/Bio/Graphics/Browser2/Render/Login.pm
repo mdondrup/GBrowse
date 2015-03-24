@@ -113,7 +113,7 @@ sub render_plugin_login {
     # END SAMLMOD:  
 
     return span({-style=>$self->container_style},
-		($session->username() && $session->private()) ? (
+		($session->username()) ? (
 		    span({-style => 'font-weight:bold;color:black;'}, 
 			 $render->translate('WELCOME', $fullname)),
 		    span({-style => $style,

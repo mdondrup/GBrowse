@@ -53,7 +53,7 @@ package Bio::Graphics::Browser2::Plugin::CdsDumper;
 use strict;
 use Bio::Graphics::Browser2::Plugin;
 use Bio::SeqIO;
-use Bio::Tools::CodonTable;
+# use Bio::Tools::CodonTable;
 use CGI qw(:standard *pre);
 use vars qw($VERSION @ISA);
 use constant DEBUG => 0;

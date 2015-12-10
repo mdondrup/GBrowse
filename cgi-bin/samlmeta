@@ -20,8 +20,8 @@ use Data::Dumper;
 use Net::SAML;
 
 ## Change $url and $idp if not running on localhost
-my $url = "https://localhost:80/fgb2/gbrowse/<myorganism>";  # Edit to match the GBrowse db you want to protect
-my $idp = "https://localhost:80/simplesaml/saml2/idp/metadata.php";
+my $url = "https://furubukk.cbu.uib.no/gb2/gbrowse/lsalmonis";  # Edit to match the GBrowse db you want to protect
+#my $idp = "https://localhost:80/simplesaml/saml2/idp/metadata.php";
 my $conf = "URL=$url"; ## edit this if zxid is not installed in /var/zxid
 
 my $cf = Net::SAML::new_conf_to_cf($conf);

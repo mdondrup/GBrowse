@@ -1,25 +1,30 @@
-#!/usr/bin/env perl 
+#!/home/licebasetest/perl5/perlbrew/perls/perl-5.20.2/bin/perl  
 
-$| = 1; undef $/;  
+ 
 use strict;
 use warnings;
 use Net::SAML;
+use CGI::Carp qw(fatalsToBrowser);
 use CGI::Cookie;
-use CGI::Fast qw(:standard);
+use CGI::Fast qw(:standard :html :form);
 use Data::Dumper;
 use Bio::Graphics::Browser2;
 use Bio::Graphics::Browser2::Render::HTML;
 use JSON;
 my $DEBUG = 1;
-
 ## this is most likely only required for use with FastCGI
+select(STDOUT);
+$| = 1; 
 #
 while (my $q = CGI::Fast->new) { # using mod_fcgid, afaik cannot avoid using this
-    unless ($ENV{'REQUEST_METHOD'} eq 'POST') {
-	die "this endpoint is for POST data only\n"; 
+
+
+	  unless ($ENV{'REQUEST_METHOD'} eq 'POST') {
+		die "this endpoint is for POST data only\n"; 
     };
+
     my $globals = Bio::Graphics::Browser2->open_globals;
-    print (STDERR "should have read ".$ENV{'CONTENT_LENGTH'}."\n") if $DEBUG;
+    (print STDERR "should have read ".$ENV{'CONTENT_LENGTH'}." bytes \n") if $DEBUG;
     
     my $myurl = $globals->gbrowse_url;
     my $htmlhead = <<HTML
@@ -34,13 +39,23 @@ HTML
                    #"PATH=/home/licebase/zxid/var/zxid/&"; 
   my $conf = $vpath."URL=$url";
   my $cf = Net::SAML::new_conf_to_cf($conf);
+  Net::SAML::url_set($cf, $url);	
+  Net::SAML::set_opt($cf, 1 ,1);		
   my $qs = $q->query_string(); # this is the only safe way to receive the post
   die "empty query string received" unless $qs;
+  confess "length of query string read ".(length $qs) ." != content length". $ENV{'CONTENT_LENGTH'}. " " if (length $qs != $ENV{'CONTENT_LENGTH'});
+  #    $qs =~ s/^SAMLResponse\0//;
+  #
+  print STDERR "Net::SAML version: ". Net::SAML::version_str;
   my $res = Net::SAML::simple_cf($cf, -1, $qs, undef, 0x1828);	  
   my $op = substr($res, 0, 1);
-  if ($op ne 'd') { warn "Unknown Net::SAML reponse code: $res"; }
-  
-  my ($userid, $displayName, $email, $sid) = (_parse_saml($res, undef));
+  my $role = $globals->setting('SAMLAuthenticator:plugin' => 'mandatory role');
+  my $email;
+  if ($op ne 'd') {
+                    confess "An error occurred during single sign-on attempt. $res" 
+
+  }
+  my ($userid, $displayName, $email, $sid) = (_parse_saml($res, $role));
   my $sessionid;
   if ($userid && $sid) {
       my $globals = Bio::Graphics::Browser2->open_globals;
@@ -54,19 +69,20 @@ HTML
       print STDERR $session->username. " stored in session ". $session->id if $DEBUG; 	
       my $confirmedUserId = $userdb->userid_from_username($userid);
       if ($confirmedUserId eq "") {
-	  print STDERR "User $userid does not yet exist; will create.\n" if $DEBUG;
-	  print STDERR "Flushed session.  Will now create user using session.\n" if $DEBUG;
-	  my ($status,undef,$message) = $userdb->do_add_user($userid,$email,$displayName,'dummy-password',$sessionid);
-	  print STDERR "Results from do_add_user: Status: $status\n" if $DEBUG;
-	  print STDERR "Results from do_add_user: Message: $message\n" if $DEBUG;
-	  $userdb->set_confirmed_from_username($userid);
-	  print STDERR "User set as confirmed.\n" if $DEBUG;
-	  $userdb->set_fullname_from_username($userid, $displayName, $email) if $displayName;
+	  	print STDERR "User $userid does not yet exist; will create.\n" if $DEBUG;
+	  	print STDERR "Flushed session.  Will now create user using session.\n" if $DEBUG;
+	  	my ($status,undef,$message) = $userdb->do_add_user($userid,$email,$displayName,'dummy-password',$sessionid);
+	  	print STDERR "Results from do_add_user: Status: $status\n" if $DEBUG;
+	  	print STDERR "Results from do_add_user: Message: $message\n" if $DEBUG;
+	  	$userdb->set_confirmed_from_username($userid);
+	  	print STDERR "User set as confirmed.\n" if $DEBUG;
+	  	$userdb->set_fullname_from_username($userid, $displayName, $email) if $displayName;
       } else {
-	  print STDERR "Found existing user with ID: $confirmedUserId so skipping creation.\n" if $DEBUG;
+	  	print STDERR "Found existing user with ID: $confirmedUserId so skipping creation.\n" if $DEBUG;
       }
-      my $id = $userdb->check_or_add_named_session($session->id,$userid);
-     
+      
+	  my $id = $userdb->add_named_session($session->id,$userid);
+      #$userdb->set_fullname_from_username($userid, $displayName, $email) if $displayName;	 
       print STDERR "setting $userid, $displayName, $email, $id in UserDB \n" if $DEBUG;
       
       my $result = to_json { userOK  => 1,
@@ -76,9 +92,11 @@ HTML
 			 };
      
       my $cookie = CGI::Cookie->new(-name => 'gbrowse_sess', 
-				    -path => '/fgb2/',
+				    -path => '/gb2/',
 				    
 				    -value => $sessionid);
+	  warn "printing header";
+
       print header(-type=>"text/html", -cookie=>$cookie);
       print start_html(-head=>$htmlhead);
      
@@ -93,21 +111,34 @@ SCRIPT
     print end_html();	
 }
 
-sub _parse_saml {
-    my $saml = shift;
-    my $mandatoryRole = shift;
-    my ($sid) = $saml =~ /^sesid: (.*)$/m;
-    return undef unless $sid;
-    my %roles = map {$_,1} ($saml =~  m/^role:\s+(.+)$/mg);
-    print STDERR join "\t", %roles;
-    return undef if ($mandatoryRole && !$roles{$mandatoryRole});
+sub _roleDeny {
+	my $message = shift;
+	print redirect('/gbrowse_access_denied');
+    exit 0;
+}
 
-    my ($uid) = $saml =~ m/^uid:\s+(.+)$/m;
-    return undef unless $uid;
+
+sub _parse_saml {
+    my ($saml, $mandatoryRole, $email) = @_;
+    
+	my ($sid) = $saml =~ /^sesid: (.*)$/m;
+    die "No session id received" unless $sid;
+    my %roles = map {$_,1} ($saml =~  m/^roles:\s+(.+)$/mg);
+    print STDERR join "\t", %roles;
+    _roleDeny("Role $mandatoryRole is required for login.\n Ask your adminisitrator ($email)  to get access.\n")
+	 if  ($mandatoryRole and (! exists $roles{$mandatoryRole}));
+    # warn "role $mandatoryRole is required for login" if (exists $roles{$mandatoryRole});
+    my ($uid) = $saml =~ m/^eduPersonPrincipalName:\s+(.+)$/m;
+    die "No valid user id received" unless $uid;
     
     my ($displayName) = $saml =~ m/^displayName:\s+(.+)$/m;
+	($displayName) = $saml =~ m/^cn:\s+(.+)$/m unless $displayName;	
+	($displayName) = $saml =~ m/^eduPersonPrincipalName:\s+(.+)$/m unless $displayName;
+	die "No valid display name received" unless $displayName;
     my ($mail) = $saml =~ m/^mail:\s+(.+)$/m;
-    return ($uid, $displayName, $mail, $sid);
+	$mail |= $uid;
+   #print STDERR  "samlPostEpr --------------- ($uid, $displayName, $mail, $sid)\n";
+	return ($uid, $displayName, $mail, $sid);
 }
 
 __END__

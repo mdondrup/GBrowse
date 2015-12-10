@@ -1,0 +1,76 @@
+#!/home/licebasetest/perl5/perlbrew/perls/perl-5.20.2/bin/perl  
+
+use strict;
+use warnings;
+use autodie;
+
+use CGI qw/:standard :html/;
+use CGI::Carp qw/fatalsToBrowser/;
+use Data::Dumper;
+my $q = CGI->new;	
+use Net::SAML;
+use Bio::Graphics::Browser2;
+use Bio::Graphics::Browser2::Render::HTML;
+
+#warn "[$$]  I have been SUMMONED";
+
+#print header, start_html,p("Single Logout receiver Endpoint [$$] called ...");
+my $pars = $q->Vars();
+#print p("<pre>" . (Dumper $pars) ."</pre>");
+
+#print p( "Net::SAML version: ". Net::SAML::version_str);
+my $globals = Bio::Graphics::Browser2->open_globals;
+CGI->initialize_globals();
+my $render = Bio::Graphics::Browser2::Render::HTML->new($globals);
+
+
+
+
+    my $url = $globals->gbrowse_url.'lsalmonis';
+
+#my $url = 'https://furubukk.cbu.uib.no/gb2/gbrowse/lsalmonis';
+my $vpath =  "";
+my $conf = $vpath."URL=$url";
+my $cf = Net::SAML::new_conf_to_cf($conf);
+Net::SAML::url_set($cf, $url);
+Net::SAML::set_opt($cf, 1 ,1);
+#my $qs = $q->query_string(); # this is the only safe way to receive the post
+my $qs = $ENV{'QUERY_STRING'};
+my $res = Net::SAML::simple_cf($cf, -1, $qs, undef, 0x1828);
+#print p("<pre> $qs </pre>");
+#print p("<pre>$res</pre>");
+#
+die "invalid location: $res" if $res =~ /\(null\)\?o\=C/;
+if ($res =~ /^Location:/) {
+# success, valid logout request. 
+# terminate gbrowse session and 
+# send redirect header....
+  my $userdb = $render->userdb->{dbi};
+  my $session   = $render->session;	
+  my $sessionid = $session->id;	
+  my $username  = $session->username;
+  $session->delete(); ## this marks the CGI::Session object as DELETED
+  $session->flush(); ## this does the delete
+
+  # don't leave session data behind in users database
+  #   # This removes the session entry also from the users database, otherwise 
+  #     # could cause problems with check_or_add_session for this user, however we 
+  #       # expired and deleted the browser session, so it is useless
+  $userdb->do('DELETE FROM session WHERE sessionid=?',undef,$sessionid); 
+
+  print $res;# print "redirecting....";
+
+
+
+} else {
+	die "An error occured during logout!!";
+}
+#print "bye...";
+#print end_html;
+
+
+
+__END__
+
+
+
